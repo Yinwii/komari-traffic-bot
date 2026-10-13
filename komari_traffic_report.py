@@ -3312,14 +3312,22 @@ def compute_strict_sample_delta_from_maps(current_nodes_map: dict, previous_node
 
 # -------------------- Top 榜展示 --------------------
 
-def top_lines(deltas: dict, n: int) -> list[str]:
+TOP_MEDALS = ("🥇", "🥈", "🥉")
+
+
+def percent_share(value: int, total: int) -> str:
+    if total <= 0:
+        return ""
+    return f"{value * 100.0 / total:.1f}%"
+
+
+def top_lines(deltas: dict, n: int, total: int | None = None) -> list[str]:
     items = []
     for v in deltas.values():
         name = v.get("name", "")
         up = int(v.get("up", 0))
         down = int(v.get("down", 0))
-        total = up + down
-        items.append((total, down, up, name))
+        items.append((up + down, down, up, name))
 
     items.sort(reverse=True, key=lambda x: (x[0], x[1], x[2], x[3].lower()))
     top = items[: max(0, int(n))]
@@ -3327,11 +3335,17 @@ def top_lines(deltas: dict, n: int) -> list[str]:
     if not top:
         return ["（暂无数据）"]
 
+    if total is None:
+        total = sum(x[0] for x in items)
+
     rows = []
-    for i, (total, down, up, name) in enumerate(top, start=1):
+    for i, (sum_v, down, up, name) in enumerate(top, start=1):
+        icon = TOP_MEDALS[i - 1] if i <= len(TOP_MEDALS) else f"{i}."
+        share = percent_share(sum_v, total)
         rows.append(
-            f"{i}️⃣ <b>{telegram_html_escape(name)}</b>：{human_bytes(total)}"
-            f"（⬇️ {human_bytes(down)} / ⬆️ {human_bytes(up)}）"
+            f"{icon} <b>{telegram_html_escape(name)}</b> · {human_bytes(sum_v)}"
+            + (f" · {share}" if share else "")
+            + f"\n　　⬇️ {human_bytes(down)}　⬆️ {human_bytes(up)}"
         )
     return rows
 
@@ -3899,60 +3913,84 @@ def build_ai_data_pack() -> dict:
     return pack
 
 
-def format_report(title: str, period_label: str, deltas: dict, reset_warnings: list[str], skipped: list[str] | None = None, include_top: bool = True) -> str:
+def format_report(title: str, period_label: str, deltas: dict, reset_warnings: list[str], skipped: list[str] | None = None, include_top: bool = True, sample_count: int | None = None) -> str:
     skipped = skipped or []
 
-    lines = [f"📊 <b>{telegram_html_escape(title)}</b>（{telegram_html_escape(period_label)}）", ""]
+    rows = []
     total_up = 0
     total_down = 0
+    for it in deltas.values():
+        up = int(it["up"])
+        down = int(it["down"])
+        total_up += up
+        total_down += down
+        rows.append((up + down, down, up, it.get("name") or ""))
+    rows.sort(reverse=True, key=lambda x: (x[0], x[1], x[2], x[3].lower()))
+    total_sum = total_up + total_down
 
-    items = sorted(deltas.values(), key=lambda x: (x.get("name") or "").lower())
-    for it in items:
-        total_up += int(it["up"])
-        total_down += int(it["down"])
-        lines.append(
-            f"🖥 <b>{telegram_html_escape(it['name'])}</b>\n"
-            f"⬇️ 下行：{human_bytes(it['down'])}\n"
-            f"⬆️ 上行：{human_bytes(it['up'])}\n"
-        )
+    lines = [
+        f"📊 <b>{telegram_html_escape(title)}</b>",
+        f"🗓 <i>{telegram_html_escape(period_label)}</i>",
+        "",
+        f"📦 <b>{human_bytes(total_sum)}</b>　⬇️ {human_bytes(total_down)}　⬆️ {human_bytes(total_up)}",
+    ]
 
-    lines.append("——")
-    lines.append(f"📦 <b>总下行</b>：{human_bytes(total_down)}")
-    lines.append(f"📦 <b>总上行</b>：{human_bytes(total_up)}")
-    lines.append(f"📦 <b>总合计</b>：{human_bytes(total_down + total_up)}")
+    meta = [f"🖥 {len(rows)} 节点"]
+    if sample_count:
+        meta.append(f"🧮 采样 {int(sample_count)}")
+    if skipped:
+        meta.append(f"⚠️ 跳过 {len(skipped)}")
+    lines.append(" ｜ ".join(meta))
 
     if include_top:
         lines.append("")
-        lines.append(f"🔥 <b>Top {TOP_N} 消耗榜</b>（上下行合计）")
-        lines.extend(top_lines(deltas, n=TOP_N))
+        lines.append(f"🔥 <b>Top {TOP_N} 消耗榜</b>")
+        lines.extend(top_lines(deltas, n=TOP_N, total=total_sum))
 
-    if skipped:
+    if rows:
         lines.append("")
-        lines.append("⚠️ <b>以下节点因异常被跳过</b>：")
-        lines.append("、".join(telegram_html_escape(item) for item in skipped[:30]) + ("……" if len(skipped) > 30 else ""))
+        lines.append("📋 <b>全部节点</b>（按合计降序）")
+        for idx, (sum_v, down, up, name) in enumerate(rows, start=1):
+            lines.append(
+                f"{idx}. <b>{telegram_html_escape(name)}</b>　⬇️ {human_bytes(down)}　⬆️ {human_bytes(up)}"
+            )
 
     if reset_warnings:
         lines.append("")
-        lines.append("⚠️ <b>检测到计数器可能重置</b>（已兜底）：")
-        lines.append("、".join(telegram_html_escape(item) for item in reset_warnings))
+        lines.append("♻️ <b>计数器重置兜底</b>：" + "、".join(telegram_html_escape(item) for item in reset_warnings))
+
+    if skipped:
+        lines.append("")
+        lines.append("⚠️ <b>异常跳过</b>：")
+        lines.append("、".join(telegram_html_escape(item) for item in skipped[:30]) + ("……" if len(skipped) > 30 else ""))
 
     return "\n".join(lines)
 
 
 def format_top_only_message(period_label: str, deltas: dict, reset_warnings: list[str], skipped: list[str] | None = None) -> str:
     skipped = skipped or []
-    lines = [f"🔥 <b>Top {TOP_N} 消耗榜</b>（上下行合计）", f"⏱ {telegram_html_escape(period_label)}", ""]
-    lines.extend(top_lines(deltas, n=TOP_N))
+    total_sum = sum(int(v.get("up", 0)) + int(v.get("down", 0)) for v in deltas.values())
+    total_up = sum(int(v.get("up", 0)) for v in deltas.values())
+    total_down = sum(int(v.get("down", 0)) for v in deltas.values())
+
+    lines = [
+        f"🔥 <b>Top {TOP_N} 消耗榜</b>",
+        f"🗓 <i>{telegram_html_escape(period_label)}</i>",
+        "",
+        f"📦 <b>{human_bytes(total_sum)}</b>　⬇️ {human_bytes(total_down)}　⬆️ {human_bytes(total_up)}"
+        f"　｜ 🖥 {len(deltas)} 节点",
+        "",
+    ]
+    lines.extend(top_lines(deltas, n=TOP_N, total=total_sum))
 
     if skipped:
         lines.append("")
-        lines.append("⚠️ <b>以下节点因异常被跳过</b>：")
+        lines.append("⚠️ <b>异常跳过</b>：")
         lines.append("、".join(telegram_html_escape(item) for item in skipped[:30]) + ("……" if len(skipped) > 30 else ""))
 
     if reset_warnings:
         lines.append("")
-        lines.append("⚠️ <b>检测到计数器可能重置</b>（已兜底）：")
-        lines.append("、".join(telegram_html_escape(item) for item in reset_warnings))
+        lines.append("♻️ <b>计数器重置兜底</b>：" + "、".join(telegram_html_escape(item) for item in reset_warnings))
 
     return "\n".join(lines)
 
@@ -4827,7 +4865,15 @@ def build_period_report_message(from_dt: datetime, to_dt: datetime, tag: str, to
 
     if top_only:
         return format_top_only_message(period_label, deltas, reset_warnings, skipped=skipped)
-    return format_report(title, period_label, deltas, reset_warnings, skipped=skipped, include_top=True)
+    return format_report(
+        title,
+        period_label,
+        deltas,
+        reset_warnings,
+        skipped=skipped,
+        include_top=True,
+        sample_count=int(period.get("sample_count", 0) or 0),
+    )
 
 
 def run_period_report(from_dt: datetime, to_dt: datetime, tag: str, top_only: bool = False):
