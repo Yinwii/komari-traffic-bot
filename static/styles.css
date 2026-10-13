@@ -966,7 +966,8 @@ nav {
 
 .panel-stretch .top-list {
   flex: 1 1 auto;
-  max-height: none;
+  min-height: 0;
+  max-height: 520px;
   margin-bottom: 4px;
 }
 
@@ -1046,6 +1047,16 @@ nav {
   max-height: 520px;
   overflow-y: auto;
   padding-right: 4px;
+  scrollbar-width: thin;
+}
+
+.traffic-chart-rows::-webkit-scrollbar {
+  width: 6px;
+}
+
+.traffic-chart-rows::-webkit-scrollbar-thumb {
+  background: var(--line);
+  border-radius: 3px;
 }
 
 .traffic-chart-row {
