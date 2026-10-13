@@ -1902,6 +1902,42 @@ def traffic_segment_pair_count() -> int:
 
 
 def missing_traffic_segment_pairs() -> dict:
+    # 快速路径：先用聚合 SQL 判断是否"无缺失"，避免每次全量拉取十几万行快照做集合差
+    # （14.5 万行快照下完整校验耗时 ~10s，是面板 overview 接口超时的根源）。
+    init_traffic_db()
+    with traffic_db_session() as conn:
+        agg = conn.execute(
+            """
+            SELECT
+              (SELECT COUNT(*) FROM (SELECT DISTINCT ts FROM traffic_snapshots)),
+              (SELECT COUNT(*) FROM (SELECT DISTINCT sample_from_ts, sample_to_ts FROM traffic_segments)),
+              (SELECT MIN(sample_from_ts) FROM traffic_segments),
+              (SELECT MAX(sample_to_ts) FROM traffic_segments),
+              (SELECT MIN(ts) FROM traffic_snapshots),
+              (SELECT MAX(ts) FROM traffic_snapshots)
+            """
+        ).fetchone()
+    distinct_ts = int(agg[0] or 0)
+    existing_pairs = int(agg[1] or 0)
+    seg_min = int(agg[2] or 0)
+    seg_max = int(agg[3] or 0)
+    snap_min = int(agg[4] or 0)
+    snap_max = int(agg[5] or 0)
+    expected_pairs = max(0, distinct_ts - 1)
+    if (
+        expected_pairs > 0
+        and existing_pairs == expected_pairs
+        and seg_min > 0
+        and seg_min <= snap_min
+        and seg_max >= snap_max
+    ):
+        return {
+            "samples": distinct_ts,
+            "expected_pairs": expected_pairs,
+            "existing_pairs": existing_pairs,
+            "missing_pairs": [],
+        }
+
     snapshot_rows = traffic_snapshot_rows_all()
     samples = snapshots_to_samples(snapshot_rows)
     expected = [
@@ -1911,7 +1947,6 @@ def missing_traffic_segment_pairs() -> dict:
     if not expected:
         return {"samples": len(samples), "expected_pairs": 0, "missing_pairs": []}
 
-    init_traffic_db()
     with traffic_db_session() as conn:
         rows = conn.execute(
             """
@@ -3929,8 +3964,7 @@ def format_report(title: str, period_label: str, deltas: dict, reset_warnings: l
     total_sum = total_up + total_down
 
     lines = [
-        f"📊 <b>{telegram_html_escape(title)}</b>",
-        f"🗓 <i>{telegram_html_escape(period_label)}</i>",
+        f"📊 <b>{telegram_html_escape(title)}</b>（{telegram_html_escape(period_label)}）",
         "",
         f"📦 <b>{human_bytes(total_sum)}</b>　⬇️ {human_bytes(total_down)}　⬆️ {human_bytes(total_up)}",
     ]
@@ -3974,8 +4008,7 @@ def format_top_only_message(period_label: str, deltas: dict, reset_warnings: lis
     total_down = sum(int(v.get("down", 0)) for v in deltas.values())
 
     lines = [
-        f"🔥 <b>Top {TOP_N} 消耗榜</b>",
-        f"🗓 <i>{telegram_html_escape(period_label)}</i>",
+        f"🔥 <b>Top {TOP_N} 消耗榜</b>（{telegram_html_escape(period_label)}）",
         "",
         f"📦 <b>{human_bytes(total_sum)}</b>　⬇️ {human_bytes(total_down)}　⬆️ {human_bytes(total_up)}"
         f"　｜ 🖥 {len(deltas)} 节点",
