@@ -166,6 +166,10 @@ KOMARI_FETCH_WORKERS = int(os.environ.get("KOMARI_FETCH_WORKERS", "6"))
 
 TOP_N = int(os.environ.get("TOP_N", "3"))  # 默认 Top3（日报/周报/月报/Top命令都用它）
 
+# 推送消息底部的跳转按钮（留空则不显示对应按钮）
+KOMARI_PANEL_URL = os.environ.get("KOMARI_PANEL_URL", "").strip()
+TRAFFIC_PANEL_URL = os.environ.get("TRAFFIC_PANEL_URL", "").strip()
+
 AI_API_BASE = os.environ.get("AI_API_BASE", "").rstrip("/")
 AI_API_KEY = os.environ.get("AI_API_KEY", "").strip()
 AI_MODEL = os.environ.get("AI_MODEL", "").strip()
@@ -2706,7 +2710,18 @@ def post_json(url: str, payload: dict, retries: int = 3):
     return r.json()
 
 
-def telegram_send_to_chat(text: str, chat_id: str, parse_mode: str | None = "HTML"):
+def telegram_url_buttons() -> dict | None:
+    buttons = []
+    if KOMARI_PANEL_URL:
+        buttons.append({"text": "🖥 Komari 面板", "url": KOMARI_PANEL_URL})
+    if TRAFFIC_PANEL_URL:
+        buttons.append({"text": "📊 流量面板", "url": TRAFFIC_PANEL_URL})
+    if not buttons:
+        return None
+    return {"inline_keyboard": [buttons]}
+
+
+def telegram_send_to_chat(text: str, chat_id: str, parse_mode: str | None = "HTML", with_url_buttons: bool = False):
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
         raise RuntimeError("TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID 未设置")
     if not str(chat_id).strip():
@@ -2719,11 +2734,15 @@ def telegram_send_to_chat(text: str, chat_id: str, parse_mode: str | None = "HTM
     }
     if parse_mode:
         payload["parse_mode"] = parse_mode
+    if with_url_buttons:
+        markup = telegram_url_buttons()
+        if markup:
+            payload["reply_markup"] = markup
     return post_json(url, payload)
 
 
 def telegram_send(text: str):
-    return telegram_send_to_chat(text, TELEGRAM_CHAT_ID, parse_mode="HTML")
+    return telegram_send_to_chat(text, TELEGRAM_CHAT_ID, parse_mode="HTML", with_url_buttons=True)
 
 
 def telegram_send_plain(text: str):

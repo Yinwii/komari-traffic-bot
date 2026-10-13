@@ -4,8 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Komari Traffic Console</title>
-  <link rel="icon" type="image/svg+xml" href="/static/komari-traffic-icon.svg?v=20261013-perf">
-  <link rel="stylesheet" href="/static/styles.css?v=20261013-perf">
+  <link rel="icon" type="image/svg+xml" href="/static/komari-traffic-icon.svg?v=20261013-ui2">
+  <link rel="stylesheet" href="/static/styles.css?v=20261013-ui2">
 </head>
 <body>
   <div id="route-progress" class="route-progress" aria-hidden="true"></div>
@@ -13,7 +13,7 @@
     <section class="login-panel">
       <div class="login-brand">
         <span class="brand-mark">
-          <img class="brand-icon" src="/static/komari-traffic-icon.svg?v=20261013-perf" alt="">
+          <img class="brand-icon" src="/static/komari-traffic-icon.svg?v=20261013-ui2" alt="">
           <span class="brand-fallback" hidden>K</span>
         </span>
         <div>
@@ -46,7 +46,7 @@
       <div class="sidebar-head">
         <a class="brand" href="/" data-route="/" aria-label="Komari Traffic 总览">
           <span class="brand-mark">
-            <img class="brand-icon" src="/static/komari-traffic-icon.svg?v=20261013-perf" alt="">
+            <img class="brand-icon" src="/static/komari-traffic-icon.svg?v=20261013-ui2" alt="">
             <span class="brand-fallback" hidden>K</span>
           </span>
           <span class="brand-copy">
@@ -161,21 +161,25 @@
           <article class="metric-panel">
             <span>今日</span>
             <strong id="metric-today">--</strong>
+            <span class="metric-side" id="metric-today-side"></span>
             <small id="metric-today-note">同步中</small>
           </article>
           <article class="metric-panel">
             <span>本周</span>
             <strong id="metric-week">--</strong>
+            <span class="metric-side" id="metric-week-side"></span>
             <small id="metric-week-note">同步中</small>
           </article>
           <article class="metric-panel">
             <span>本月</span>
             <strong id="metric-month">--</strong>
+            <span class="metric-side" id="metric-month-side"></span>
             <small id="metric-month-note">同步中</small>
           </article>
           <article class="metric-panel">
             <span>状态</span>
             <strong id="metric-services">--</strong>
+            <span class="metric-side" id="metric-services-side"></span>
             <small id="metric-time">--</small>
           </article>
         </section>
@@ -531,6 +535,6 @@
 
   <div id="toast-container"></div>
 
-  <script src="/static/app.js?v=20261013-perf"></script>
+  <script src="/static/app.js?v=20261013-ui2"></script>
 </body>
 </html>

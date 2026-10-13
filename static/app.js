@@ -1120,12 +1120,23 @@ function renderOverview(data) {
   $("metric-today-note").textContent = noteText(periods.today);
   $("metric-week-note").textContent = noteText(periods.week);
   $("metric-month-note").textContent = noteText(periods.month);
+  const sideText = (period) => {
+    const total = period?.data?.total;
+    if (!period?.ok || !total) return "";
+    return `⬇️ ${total.down_human || "--"} · ⬆️ ${total.up_human || "--"}`;
+  };
+  $("metric-today-side").textContent = sideText(periods.today);
+  $("metric-week-side").textContent = sideText(periods.week);
+  $("metric-month-side").textContent = sideText(periods.month);
   const serviceText = serviceMetricText(data);
-  $("metric-services").textContent = serviceText.value;
+  const servicesEl = $("metric-services");
+  servicesEl.textContent = serviceText.value;
+  servicesEl.classList.toggle("ok-green", serviceText.value === "运行中");
+  $("metric-services-side").textContent = serviceText.value === "运行中" ? "全部服务正常" : "";
   $("metric-time").textContent = serviceText.note || data.now || "--";
   $("range-label").textContent = "24h / 7d";
 
-  const topNodes = periods.today?.data?.top_nodes || periods.today?.data?.nodes?.slice(0, 5) || [];
+  const topNodes = periods.today?.data?.nodes || periods.today?.data?.top_nodes || [];
   $("top-list").innerHTML = topNodes.length
     ? topNodes.map((n, index) => `
       <li>
