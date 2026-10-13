@@ -1222,7 +1222,7 @@ function bindNodeJumpButtons() {
 
 async function loadOverview() {
   const [overviewResult, systemResult] = await Promise.allSettled([
-    api("/api/overview"),
+    api("/api/overview", { timeout: 60000 }),
     api("/api/system/status")
   ]);
   if (overviewResult.status === "fulfilled") {

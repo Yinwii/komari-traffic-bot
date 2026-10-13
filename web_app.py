@@ -10,6 +10,7 @@ import io
 import os
 import re
 import secrets
+import threading
 import time
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -473,9 +474,35 @@ def records_health_stats(uuid: str, hours: int) -> dict | None:
     return health if any(metric_stats_has_value(health.get(metric)) for metric in health) else None
 
 
+# 健康指标（cpu/ram/disk 窗口统计）变化缓慢，做进程内 TTL 缓存：
+# 18 节点全量拉取一次 ~25s（Komari 按节点逐个查记录），不缓存会让 overview 每次都超时。
+_HEALTH_CACHE: dict[int, tuple[float, dict[str, dict]]] = {}
+_HEALTH_CACHE_TTL = 300.0
+_HEALTH_CACHE_LOCK = threading.Lock()
+
+
+def _health_cache_get(hours: int) -> dict[str, dict] | None:
+    with _HEALTH_CACHE_LOCK:
+        entry = _HEALTH_CACHE.get(int(hours))
+        if not entry:
+            return None
+        ts, payload = entry
+        if time.time() - ts > _HEALTH_CACHE_TTL:
+            return None
+        return payload
+
+
+def _health_cache_put(hours: int, payload: dict[str, dict]) -> None:
+    with _HEALTH_CACHE_LOCK:
+        _HEALTH_CACHE[int(hours)] = (time.time(), payload)
+
+
 def records_health_map(items: list[dict], hours: int) -> dict[str, dict]:
     if not k.KOMARI_BASE_URL or WEB_HEALTH_FETCH_LIMIT <= 0:
         return {}
+    cached = _health_cache_get(hours)
+    if cached is not None:
+        return cached
     targets = []
     seen = set()
     for item in items or []:
@@ -502,6 +529,8 @@ def records_health_map(items: list[dict], hours: int) -> dict[str, dict]:
                 stats = None
             if stats:
                 health[uuid] = stats
+    if health:
+        _health_cache_put(hours, health)
     return health
 
 
