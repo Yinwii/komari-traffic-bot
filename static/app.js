@@ -625,7 +625,7 @@ function serviceMetricText(data) {
   if (services.ai?.configured) notes.push("AI 可用");
   return {
     value: "运行中",
-    note: notes.join("，"),
+    note: notes.join(" · "),
   };
 }
 
@@ -1130,10 +1130,14 @@ function renderOverview(data) {
   $("metric-month-side").textContent = sideText(periods.month);
   const serviceText = serviceMetricText(data);
   const servicesEl = $("metric-services");
-  servicesEl.textContent = serviceText.value;
-  servicesEl.classList.toggle("ok-green", serviceText.value === "运行中");
-  $("metric-services-side").textContent = serviceText.value === "运行中" ? "全部服务正常" : "";
-  $("metric-time").textContent = serviceText.note || data.now || "--";
+  const running = serviceText.value === "运行中";
+  servicesEl.classList.toggle("ok-green", running);
+  servicesEl.innerHTML = running
+    ? `<span class="run-dot" aria-hidden="true"></span>运行中`
+    : escapeHtml(serviceText.value);
+  $("metric-services-side").textContent = running ? serviceText.note : "";
+  const nowShort = String(data.now || "").match(/\d{2}:\d{2}:\d{2}/);
+  $("metric-time").textContent = nowShort ? `更新于 ${nowShort[0]}` : serviceText.note || "--";
   $("range-label").textContent = "24h / 7d";
 
   const topNodes = periods.today?.data?.nodes || periods.today?.data?.top_nodes || [];
