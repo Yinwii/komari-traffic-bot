@@ -971,6 +971,28 @@ nav {
   margin-bottom: 4px;
 }
 
+.panel-toggle {
+  cursor: pointer;
+  user-select: none;
+}
+
+.panel-toggle:hover {
+  color: var(--text);
+  border-color: var(--muted);
+}
+
+.panel.expand-all .traffic-chart-rows,
+.panel.expand-all .top-list {
+  max-height: none;
+  overflow-y: visible;
+}
+
+.traffic-y-label .row-num {
+  margin-right: 6px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
 .wide {
   min-width: 0;
 }

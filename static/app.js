@@ -1210,9 +1210,9 @@ function renderChart(data) {
         <div class="axis-ticks">${ticks.map((tick) => `<span>${escapeHtml(tick.label)}</span>`).join("")}</div>
       </div>
       <div class="traffic-chart-rows">
-        ${nodes.map((n) => `
+        ${nodes.map((n, index) => `
           <${n.compact_other ? "div" : "button"} class="traffic-chart-row ${n.compact_other ? "compact-other" : ""}" ${n.compact_other ? "" : `data-jump-node="${escapeHtml(n.uuid)}" title="${escapeHtml(n.name)}"`}>
-            <span class="traffic-y-label">${escapeHtml(n.name)}</span>
+            <span class="traffic-y-label"><span class="row-num">${index + 1}.</span>${escapeHtml(n.name)}</span>
             <span class="traffic-bars">
               <span class="traffic-bar-line">
                 ${svgBar("day", n.last24, max)}
@@ -1227,11 +1227,25 @@ function renderChart(data) {
       </div>
     </div>`;
   bindNodeJumpButtons();
+  bindPanelToggles();
 }
 
 function bindNodeJumpButtons() {
   document.querySelectorAll("[data-jump-node]").forEach((button) => {
     button.style.cursor = "pointer";
+  });
+}
+
+function bindPanelToggles() {
+  document.querySelectorAll(".panel-toggle").forEach((button) => {
+    if (button.dataset.bound) return;
+    button.dataset.bound = "1";
+    button.addEventListener("click", () => {
+      const panel = button.closest(".panel");
+      if (!panel) return;
+      const expanded = panel.classList.toggle("expand-all");
+      button.textContent = expanded ? "收起" : "展开全部";
+    });
   });
 }
 
