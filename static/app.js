@@ -2,7 +2,7 @@ const SIDEBAR_STORAGE_KEY = "komari.sidebarCollapsed";
 const THEME_STORAGE_KEY = "komari.themeMode";
 const THEME_MODES = ["auto", "light", "dark"];
 const DISPLAY_LIMITS = {
-  overviewNodes: 8,
+  overviewNodes: 32,
   analyticsNodes: 10,
   analyticsGroups: 18,
   taskRuns: 6,
