@@ -312,7 +312,9 @@ report_schedules（Web 面板应用内推送计划）
 
 告警默认启用节点连续采样失败检测；流量阈值类规则只有在你配置对应阈值后才会触发，避免升级后突然刷屏。
 
-节点连续采样失败达到阈值后只在内部记录为 active，离线期间不发送 Telegram；节点恢复上报后发送一条汇总通知，包含恢复时间和从首次失败采样开始计算的离线时长。`ALERT_COOLDOWN_SECONDS` 仅控制持续触发的流量阈值告警多久重复提醒一次。
+节点连续采样失败达到阈值后只在内部记录为 active，离线期间不发送 Telegram；节点恢复上报后发送一条汇总通知，包含监控来源、节点名、可点击的节点详情链接（Komari 面板 `/instance/<uuid>`，同时附内联按钮）、离线开始时间与从首次失败采样开始计算的离线时长。`ALERT_COOLDOWN_SECONDS` 仅控制持续触发的流量阈值告警多久重复提醒一次。
+
+节点清单（名称 -> uuid）由每次采样自动落盘到 `nodes_index.json`，用于生成节点链接；告警消息来源标识可用 `ALERT_SOURCE_LABEL` 覆盖（默认 `Komari 监控`），推送方显示 `BOT_INSTANCE_NAME`（默认 `komari-traffic-bot`）。
 
 - `ALERT_TOTAL_WINDOW_BYTES`：最近 `ALERT_WINDOW_MINUTES` 分钟所有节点合计超阈值
 - `ALERT_NODE_WINDOW_BYTES`：最近窗口内单节点超阈值

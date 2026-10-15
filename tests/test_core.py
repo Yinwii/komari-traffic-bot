@@ -117,6 +117,7 @@ class CoreTests(unittest.TestCase):
         self.patch_attr("DATA_DIR", str(self.tmp_path))
         self.patch_attr("SAMPLES_PATH", str(self.tmp_path / "samples.json"))
         self.patch_attr("ALERTS_STATE_PATH", str(self.tmp_path / "alerts_state.json"))
+        self.patch_attr("NODES_INDEX_PATH", str(self.tmp_path / "nodes_index.json"))
         self.patch_attr("HISTORY_PATH", str(self.tmp_path / "history.json"))
         self.patch_attr("REPORT_SCHEDULES_PATH", str(self.tmp_path / "report_schedules.json"))
         self.patch_attr("TRAFFIC_DB_PATH", str(self.tmp_path / "traffic.db"))
@@ -468,7 +469,50 @@ class CoreTests(unittest.TestCase):
         self.assertIn("节点已恢复", events[0]["message"])
         self.assertIn("监控数据已恢复正常", events[0]["message"])
         self.assertIn("离线时长：<b>约 10 分钟</b>", events[0]["message"])
+        self.assertIn("🕒 离线：<b>", events[0]["message"])
+        self.assertIn("推送：<b>komari-traffic-bot</b>", events[0]["message"])
         self.assertEqual(state["active"], {})
+
+    def test_recovery_message_has_source_and_node_link(self):
+        self.patch_attr("KOMARI_BASE_URL", "https://tz.wii.qzz.io")
+        k.save_nodes_index([
+            {"uuid": "3fcfbcd7-4be6-4429-abf8-d667b1da3e17", "name": "VMISS - US.LA.TRI.Basic"},
+        ])
+        record = {
+            "type": "node_missing",
+            "title": "节点采样异常：VMISS - US.LA.TRI.Basic",
+            "details": {"node_name": "VMISS - US.LA.TRI.Basic"},
+            "first_seen": 1000,
+        }
+
+        message = k.format_recovery_message(record, now_ts=1900)
+
+        self.assertIn("✅ <b>节点已恢复</b> · Komari 监控", message)
+        self.assertIn("面板：<code>tz.wii.qzz.io</code>", message)
+        self.assertIn(
+            '<a href="https://tz.wii.qzz.io/instance/3fcfbcd7-4be6-4429-abf8-d667b1da3e17">',
+            message,
+        )
+        self.assertIn("离线时长：<b>约 15 分钟</b>", message)
+
+        buttons = k._alert_node_buttons("VMISS - US.LA.TRI.Basic")
+        self.assertEqual(
+            buttons["inline_keyboard"][0][0]["url"],
+            "https://tz.wii.qzz.io/instance/3fcfbcd7-4be6-4429-abf8-d667b1da3e17",
+        )
+
+    def test_node_link_falls_back_to_panel_without_index(self):
+        self.patch_attr("KOMARI_BASE_URL", "https://tz.wii.qzz.io")
+        record = {
+            "type": "node_missing",
+            "details": {"node_name": "unknown-node"},
+            "first_seen": 1000,
+        }
+
+        message = k.format_recovery_message(record, now_ts=1900)
+
+        self.assertNotIn("<a href=", message)
+        self.assertIn("节点已恢复", message)
 
     def test_node_missing_does_not_double_count_same_sample(self):
         k.save_samples({

@@ -17,7 +17,7 @@ import concurrent.futures
 import signal
 import secrets
 import threading
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta, date, timezone
@@ -185,6 +185,7 @@ TG_OFFSET_PATH = os.path.join(DATA_DIR, "tg_offset.txt")
 TG_CONFIRM_PATH = os.path.join(DATA_DIR, "tg_confirm.json")
 AI_PACK_CACHE_PATH = os.path.join(DATA_DIR, "ai_pack_cache.json")
 ALERTS_STATE_PATH = os.path.join(DATA_DIR, "alerts_state.json")
+NODES_INDEX_PATH = os.path.join(DATA_DIR, "nodes_index.json")
 REPORT_SCHEDULES_PATH = os.path.join(DATA_DIR, "report_schedules.json")
 TRAFFIC_DB_PATH = os.path.join(DATA_DIR, "traffic.db")
 
@@ -215,6 +216,8 @@ ALERT_NODE_WINDOW_BYTES = parse_bytes_env("ALERT_NODE_WINDOW_BYTES")
 ALERT_DAILY_TOTAL_BYTES = parse_bytes_env("ALERT_DAILY_TOTAL_BYTES")
 ALERT_DAILY_NODE_BYTES = parse_bytes_env("ALERT_DAILY_NODE_BYTES")
 ALERT_RECOVERY_NOTIFY = parse_bool_env("ALERT_RECOVERY_NOTIFY", True)
+# 恢复/告警消息标题里标注的监控来源（默认 Komari 监控）
+ALERT_SOURCE_LABEL = os.environ.get("ALERT_SOURCE_LABEL", "Komari 监控").strip() or "Komari 监控"
 
 SHUTTING_DOWN = False
 SAMPLE_THREAD: threading.Thread | None = None
@@ -2721,7 +2724,7 @@ def telegram_url_buttons() -> dict | None:
     return {"inline_keyboard": [buttons]}
 
 
-def telegram_send_to_chat(text: str, chat_id: str, parse_mode: str | None = "HTML", with_url_buttons: bool = False):
+def telegram_send_to_chat(text: str, chat_id: str, parse_mode: str | None = "HTML", with_url_buttons: bool = False, reply_markup: dict | None = None):
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
         raise RuntimeError("TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID 未设置")
     if not str(chat_id).strip():
@@ -2734,7 +2737,9 @@ def telegram_send_to_chat(text: str, chat_id: str, parse_mode: str | None = "HTM
     }
     if parse_mode:
         payload["parse_mode"] = parse_mode
-    if with_url_buttons:
+    if reply_markup:
+        payload["reply_markup"] = reply_markup
+    elif with_url_buttons:
         markup = telegram_url_buttons()
         if markup:
             payload["reply_markup"] = markup
@@ -2753,8 +2758,8 @@ def telegram_alert_chat_id() -> str:
     return TELEGRAM_ALERT_CHAT_ID or TELEGRAM_CHAT_ID
 
 
-def telegram_send_alert(text: str):
-    return telegram_send_to_chat(text, telegram_alert_chat_id(), parse_mode="HTML")
+def telegram_send_alert(text: str, reply_markup: dict | None = None):
+    return telegram_send_to_chat(text, telegram_alert_chat_id(), parse_mode="HTML", reply_markup=reply_markup)
 
 
 def telegram_configured() -> bool:
@@ -3060,6 +3065,10 @@ def fetch_nodes_and_totals():
         raise RuntimeError(f"/api/nodes 返回异常：{nodes_resp}")
 
     nodes = nodes_resp.get("data", [])
+    try:
+        save_nodes_index(nodes)
+    except Exception:
+        logging.exception("failed to persist nodes index")
     out: list[NodeTotal] = []
     skipped: list[str] = []
 
@@ -4446,6 +4455,88 @@ def _alert_escape(value) -> str:
     return telegram_html_escape(value)
 
 
+def _norm_node_name(value) -> str:
+    return re.sub(r"\s+", " ", str(value or "").strip()).lower()
+
+
+def save_nodes_index(nodes) -> None:
+    """把 Komari 节点清单（名称 -> uuid）落盘，供告警消息生成可点击的节点详情链接。"""
+    index = {}
+    for node in nodes or []:
+        if not isinstance(node, dict):
+            continue
+        uuid = str(node.get("uuid") or "").strip()
+        name = str(node.get("name") or uuid).strip()
+        if uuid and name:
+            index[name] = {"uuid": uuid, "name": name}
+    if not index:
+        return
+    save_json_atomic(NODES_INDEX_PATH, {"updated_at": int(time.time()), "nodes": index})
+
+
+def load_nodes_index() -> dict:
+    data = load_json(NODES_INDEX_PATH, {})
+    nodes = data.get("nodes") if isinstance(data, dict) else None
+    return nodes if isinstance(nodes, dict) else {}
+
+
+def node_detail_url(name: str) -> str:
+    """按节点名解析 Komari 面板的节点详情页链接（前端路由 /instance/<uuid>）。"""
+    if not KOMARI_BASE_URL:
+        return ""
+    target = _norm_node_name(name)
+    if not target:
+        return ""
+    for key, entry in load_nodes_index().items():
+        if not isinstance(entry, dict):
+            continue
+        if _norm_node_name(entry.get("name") or key) != target:
+            continue
+        uuid = str(entry.get("uuid") or "").strip()
+        if uuid:
+            return f"{KOMARI_BASE_URL}/instance/{quote(uuid, safe='')}"
+    return ""
+
+
+def _komari_panel_host() -> str:
+    base = str(KOMARI_PANEL_URL or KOMARI_BASE_URL or "").strip()
+    if not base:
+        return ""
+    try:
+        parsed = urlsplit(base if "://" in base else "//" + base)
+    except Exception:
+        return ""
+    return parsed.netloc or ""
+
+
+def _alert_source_line() -> str:
+    """消息里的来源说明：哪个服务推的、数据来自哪个面板。"""
+    push_label = BOT_INSTANCE_NAME or "komari-traffic-bot"
+    parts = [f"📡 推送：<b>{_alert_escape(push_label)}</b>"]
+    panel_host = _komari_panel_host()
+    if panel_host:
+        parts.append(f"面板：<code>{_alert_escape(panel_host)}</code>")
+    return " ｜ ".join(parts)
+
+
+def _alert_node_link_html(name: str) -> str:
+    url = node_detail_url(name) or KOMARI_PANEL_URL
+    if not url:
+        return ""
+    safe_url = html.escape(url, quote=True)
+    return f'🔗 详情：<a href="{safe_url}">{safe_url}</a>'
+
+
+def _alert_node_buttons(name: str) -> dict | None:
+    rows = []
+    url = node_detail_url(name)
+    if url:
+        rows.append([{"text": "🖥 查看节点详情", "url": url}])
+    if KOMARI_PANEL_URL:
+        rows.append([{"text": "📊 Komari 面板", "url": KOMARI_PANEL_URL}])
+    return {"inline_keyboard": rows} if rows else None
+
+
 def _alert_event(key: str, alert_type: str, title: str, body: str, details: dict | None = None) -> dict:
     return {
         "key": key,
@@ -4662,22 +4753,29 @@ def format_recovery_message(record: dict, now_ts: int) -> str:
     if record.get("type") == "node_missing":
         name = _node_missing_name(record)
         first_seen = int(record.get("first_seen", now_ts) or now_ts)
+        first_text = datetime.fromtimestamp(first_seen, TZ).strftime("%Y-%m-%d %H:%M:%S")
         duration = _format_alert_duration(now_ts - first_seen)
-        return (
-            "✅ <b>节点已恢复</b>\n"
-            f"🖥️ 节点：<b>{_alert_escape(name)}</b>\n"
-            f"🕒 恢复时间：{ts}\n"
-            f"⏱️ 离线时长：<b>{duration}</b>\n"
-            "🟢 状态：监控数据已恢复正常"
-        )
+        lines = [
+            f"✅ <b>节点已恢复</b> · {_alert_escape(ALERT_SOURCE_LABEL)}",
+            _alert_source_line(),
+            f"🖥️ 节点：<b>{_alert_escape(name)}</b>",
+        ]
+        link_line = _alert_node_link_html(name)
+        if link_line:
+            lines.append(link_line)
+        lines.append(f"🕒 离线：<b>{first_text}</b> → {ts}")
+        lines.append(f"⏱️ 离线时长：<b>{duration}</b>")
+        lines.append("🟢 状态：监控数据已恢复正常")
+        return "\n".join(lines)
 
     title = record.get("title", "告警")
-    return (
-        "✅ <b>Komari 告警恢复</b>\n"
-        f"🕒 {ts}\n"
-        f"📌 <b>{_alert_escape(title)}</b>\n"
-        "当前规则已不再触发。"
-    )
+    return "\n".join([
+        f"✅ <b>Komari 告警恢复</b> · {_alert_escape(ALERT_SOURCE_LABEL)}",
+        _alert_source_line(),
+        f"🕒 {ts}",
+        f"📌 <b>{_alert_escape(title)}</b>",
+        "当前规则已不再触发。",
+    ])
 
 
 def apply_alert_candidates(state: dict, candidates: list[dict], now_ts: int, dry_run: bool = False) -> list[dict]:
@@ -4739,6 +4837,7 @@ def apply_alert_candidates(state: dict, candidates: list[dict], now_ts: int, dry
                 "key": key,
                 "title": rec.get("title", key),
                 "message": format_recovery_message(rec, now_ts),
+                "reply_markup": _alert_node_buttons(_node_missing_name(rec)) if rec.get("type") == "node_missing" else None,
                 "suppressed": muted,
                 "reason": "muted" if muted else "",
             })
@@ -4769,13 +4868,13 @@ def _run_alert_check_impl(dry_run: bool = False, notify: bool = True, force_samp
                 if event.get("suppressed"):
                     continue
                 try:
-                    telegram_send_alert(event["message"])
+                    telegram_send_alert(event["message"], reply_markup=event.get("reply_markup"))
                     if event["kind"] == "alert" and "rec" in event:
                         event["rec"]["last_sent"] = now_ts
                         sent_keys.append(event["key"])
                 except requests.exceptions.HTTPError as e:
                     if e.response is not None and e.response.status_code == 400:
-                        telegram_send_to_chat(re.sub(r"</?[^>]+>", "", event["message"]), telegram_alert_chat_id(), parse_mode=None)
+                        telegram_send_to_chat(re.sub(r"</?[^>]+>", "", event["message"]), telegram_alert_chat_id(), parse_mode=None, reply_markup=event.get("reply_markup"))
                         if event["kind"] == "alert" and "rec" in event:
                             event["rec"]["last_sent"] = now_ts
                             sent_keys.append(event["key"])
