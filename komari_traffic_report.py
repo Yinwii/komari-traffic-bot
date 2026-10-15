@@ -4528,13 +4528,13 @@ def _alert_node_link_html(name: str) -> str:
 
 
 def _alert_node_buttons(name: str) -> dict | None:
-    rows = []
+    row = []
     url = node_detail_url(name)
     if url:
-        rows.append([{"text": "🖥 查看节点详情", "url": url}])
+        row.append({"text": "🖥 查看节点详情", "url": url})
     if KOMARI_PANEL_URL:
-        rows.append([{"text": "📊 Komari 面板", "url": KOMARI_PANEL_URL}])
-    return {"inline_keyboard": rows} if rows else None
+        row.append({"text": "📊 Komari 面板", "url": KOMARI_PANEL_URL})
+    return {"inline_keyboard": [row]} if row else None
 
 
 def _alert_event(key: str, alert_type: str, title: str, body: str, details: dict | None = None) -> dict:
@@ -4753,7 +4753,7 @@ def format_recovery_message(record: dict, now_ts: int) -> str:
     if record.get("type") == "node_missing":
         name = _node_missing_name(record)
         first_seen = int(record.get("first_seen", now_ts) or now_ts)
-        first_text = datetime.fromtimestamp(first_seen, TZ).strftime("%Y-%m-%d %H:%M:%S")
+        first_text = datetime.fromtimestamp(first_seen, TZ).strftime("%Y-%m-%d %H:%M:%S %Z")
         duration = _format_alert_duration(now_ts - first_seen)
         lines = [
             f"✅ <b>节点已恢复</b> · {_alert_escape(ALERT_SOURCE_LABEL)}",
@@ -4763,7 +4763,8 @@ def format_recovery_message(record: dict, now_ts: int) -> str:
         link_line = _alert_node_link_html(name)
         if link_line:
             lines.append(link_line)
-        lines.append(f"🕒 离线：<b>{first_text}</b> → {ts}")
+        lines.append(f"🕒 离线时间：<b>{first_text}</b>")
+        lines.append(f"🕒 恢复时间：{ts}")
         lines.append(f"⏱️ 离线时长：<b>{duration}</b>")
         lines.append("🟢 状态：监控数据已恢复正常")
         return "\n".join(lines)

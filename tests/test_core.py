@@ -469,7 +469,8 @@ class CoreTests(unittest.TestCase):
         self.assertIn("节点已恢复", events[0]["message"])
         self.assertIn("监控数据已恢复正常", events[0]["message"])
         self.assertIn("离线时长：<b>约 10 分钟</b>", events[0]["message"])
-        self.assertIn("🕒 离线：<b>", events[0]["message"])
+        self.assertIn("🕒 离线时间：<b>", events[0]["message"])
+        self.assertIn("🕒 恢复时间：", events[0]["message"])
         self.assertIn("推送：<b>komari-traffic-bot</b>", events[0]["message"])
         self.assertEqual(state["active"], {})
 
